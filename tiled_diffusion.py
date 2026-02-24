@@ -72,7 +72,7 @@ def split_bboxes(w:int, h:int, tile_w:int, tile_h:int, overlap:int=16, init_weig
     dy = (h - tile_h) / (rows - 1) if rows > 1 else 0
 
     bbox_list: List[BBox] = []
-    weight = torch.zeros((1, 1, h, w), device=devices.device, dtype=torch.float32)
+    weight = torch.zeros((1, 1, h, w), device=devices.device, dtype=torch.float64)
     for row in range(rows):
         y = min(int(row * dy), h - tile_h)
         for col in range(cols):
@@ -108,7 +108,7 @@ class AbstractDiffusion:
         # self.h: int = int(self.p.height // opt_f)
         # weights for background & grid bboxes
         self._weights: Tensor = None
-        # self.weights: Tensor = torch.zeros((1, 1, self.h, self.w), device=devices.device, dtype=torch.float32)
+        # self.weights: Tensor = torch.zeros((1, 1, self.h, self.w), device=devices.device, dtype=torch.float64)
         self._init_grid_bbox = None
         self._init_done = None
 
@@ -207,7 +207,7 @@ class AbstractDiffusion:
     def init_grid_bbox(self, tile_w:int, tile_h:int, overlap:int, tile_bs:int):
         # if self._init_grid_bbox is not None: return
         # self._init_grid_bbox = True
-        self.weights = torch.zeros((1, 1, self.h, self.w), device=devices.device, dtype=torch.float32)
+        self.weights = torch.zeros((1, 1, self.h, self.w), device=devices.device, dtype=torch.float64)
         self.enable_grid_bbox = True
 
         self.tile_w = min(tile_w, self.w)
@@ -226,7 +226,7 @@ class AbstractDiffusion:
     @grid_bbox
     def get_grid_bbox(self, tile_w: int, tile_h: int, overlap: int, tile_bs: int, w: int, h: int, 
                     device: torch.device, get_tile_weights: Callable = lambda: 1.0) -> List[List[BBox]]:
-        weights = torch.zeros((1, 1, h, w), device=device, dtype=torch.float32)
+        weights = torch.zeros((1, 1, h, w), device=device, dtype=torch.float64)
         # enable_grid_bbox = True
 
         tile_w = min(tile_w, w)
@@ -454,12 +454,18 @@ def gaussian_weights(tile_w:int, tile_h:int) -> Tensor:
     This generates gaussian weights to smooth the noise of each tile.
     This is critical for this method to work.
     '''
-    f = lambda x, midpoint, var=0.01: exp(-(x-midpoint)*(x-midpoint) / (tile_w*tile_w) / (2*var)) / sqrt(2*pi*var)
-    x_probs = [f(x, (tile_w - 1) / 2) for x in range(tile_w)]   # -1 because index goes from 0 to latent_width - 1
-    y_probs = [f(y,  tile_h      / 2) for y in range(tile_h)]
+    def func(tile_dim, midpoint, var=0.01):
+        probs = -(np.arange(0, tile_dim) - midpoint)**2
+        probs /= tile_dim * tile_dim * 2 * var
+        probs = np.exp(probs) / np.sqrt(2*pi*var)
+        return probs
+    
+    x_probs = func(tile_w, (tile_w - 1) / 2) # -1 because index goes from 0 to latent_width - 1
+    y_probs = func(tile_h, tile_h / 2)
 
     w = np.outer(y_probs, x_probs)
-    return torch.from_numpy(w).to(devices.device, dtype=torch.float32)
+
+    return torch.from_numpy(w).to(devices.device, dtype=torch.float64)
 
 class CondDict: ...
 
